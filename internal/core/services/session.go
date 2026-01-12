@@ -4,7 +4,6 @@ import (
 	"context"
 	"livon/internal/core/domain"
 	"log/slog"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,8 +24,6 @@ type SessionService struct {
 	memRepo   domain.ConversationParticipantRepository
 	txManager *TxManager
 	log       *slog.Logger
-	lastFlush sync.Map // senderID → time.Time
-	clock     func() time.Time
 }
 
 func NewSessionService(
@@ -38,8 +35,6 @@ func NewSessionService(
 		log:       log,
 		memRepo:   memRepo,
 		txManager: txManager,
-		lastFlush: sync.Map{},
-		clock:     time.Now,
 	}
 }
 
@@ -50,13 +45,12 @@ func (s *SessionService) StartSession(
 	forceNew bool,
 ) (*domain.Session, error) {
 	cid := uuid.MustParse(convID)
-	now := s.clock()
 	var session *domain.Session
 	err := s.txManager.WithTx(ctx, func(txCtx context.Context) error {
 		if !forceNew {
 			p, err := s.memRepo.FindRecentParticipant(txCtx, userID, cid)
 			if err == nil && p != nil {
-				if now.Sub(p.LastSeenAt) <= 5*time.Minute && p.LeftAt == nil {
+				if time.Since(p.LastSeenAt) <= 3*time.Minute && p.LeftAt == nil {
 					session = &domain.Session{
 						UserID:         userID,
 						ConversationID: cid,
@@ -69,6 +63,7 @@ func (s *SessionService) StartSession(
 			}
 		}
 		// New identity logic
+		now := time.Now()
 		p := &domain.Participant{
 			ID:             uuid.New(),
 			UserID:         userID,
@@ -112,17 +107,12 @@ func (s *SessionService) SendHeartbeat(
 	senderID string,
 	convID string,
 ) error {
-	now := s.clock()
-	val, _ := s.lastFlush.LoadOrStore(senderID, now)
-	if now.Sub(val.(time.Time)) >= 5*time.Minute {
-		if err := s.txManager.WithTx(ctx, func(txCtx context.Context) error {
-			return s.memRepo.UpdatePresence(txCtx, uuid.MustParse(senderID))
-		}); err != nil {
-			s.log.ErrorContext(ctx, "session - send heartbeat - postgres update presence failed", "conv_id", convID, "sender_id", senderID)
-			return err
-		}
-		s.log.InfoContext(ctx, "session - send heartbeat - postgres update presence success", "conv_id", convID, "sender_id", senderID)
-		s.lastFlush.Store(senderID, now)
+	if err := s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+		return s.memRepo.UpdatePresence(txCtx, uuid.MustParse(senderID))
+	}); err != nil {
+		s.log.ErrorContext(ctx, "session - send heartbeat - postgres update presence failed", "conv_id", convID, "sender_id", senderID, "err", err)
+		return err
 	}
+	s.log.InfoContext(ctx, "session - send heartbeat - postgres update presence success", "conv_id", convID, "sender_id", senderID)
 	return nil
 }

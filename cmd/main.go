@@ -62,7 +62,7 @@ func main() {
 	msgSvc := services.NewMessageService(log, msgQueue, hub, msgRepo, txManager)
 
 	tokenSvc := services.NewTokenService(log, cfg.SecretToken)
-	managerSvc := services.NewManagerService(log, convRepo, presStore, sessSvc, msgSvc)
+	managerSvc := services.NewManagerService(log, convRepo, presStore, sessSvc, msgSvc, txManager)
 
 	wrkr := worker.NewConversationWorker(log, *msgQueue, msgSvc, cfg.Worker.MessageGroup)
 	hub.RunWorker(wrkr.Run)

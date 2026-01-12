@@ -29,6 +29,7 @@ type ManagerService struct {
 	presStore contracts.PresenceStore
 	session   ISessionService
 	message   IMessageService
+	txManager *TxManager
 	log       *slog.Logger
 }
 
@@ -38,6 +39,7 @@ func NewManagerService(
 	presStore contracts.PresenceStore,
 	session *SessionService,
 	message *MessageService,
+	txManager *TxManager,
 ) *ManagerService {
 	return &ManagerService{
 		log:       log,
@@ -45,6 +47,7 @@ func NewManagerService(
 		presStore: presStore,
 		session:   session,
 		message:   message,
+		txManager: txManager,
 	}
 }
 
@@ -63,14 +66,16 @@ func (c *ManagerService) HandleConnect(
 	}
 	cid = uuid.MustParse(convID)
 	if participants, err := c.presStore.GetOnlineParticipants(ctx, convID); len(participants) == 0 || err != nil {
-		if conv, err := c.convRepo.CreateConversation(ctx, cid); err != nil {
-			c.log.ErrorContext(ctx, "manager - handle connect - create conversation failed", "conv_id", cid.String(), "user_id", userID, "err", err)
+		if err := c.txManager.WithTx(ctx, func(txCtx context.Context) error {
+			if _, err := c.convRepo.CreateConversation(ctx, cid); err != nil {
+				return err
+			}
+			return nil
+		}); err != nil {
+			c.log.ErrorContext(ctx, "manager - handle connect - ensure conversation failed", "conv_id", cid.String(), "user_id", userID, "err", err)
 			return "", false, err
-		} else {
-			convID = conv.ID.String()
-			cid = conv.ID
-			c.log.InfoContext(ctx, "manager - handle connect - create conversation success", "conv_id", convID, "user_id", userID)
 		}
+		c.log.InfoContext(ctx, "manager - handle connect - ensure conversation success", "conv_id", convID, "user_id", userID)
 	}
 	// Identity resolution (PG boundary)
 	session, err := c.session.StartSession(ctx, userID, convID, forceNew)
@@ -96,19 +101,26 @@ func (c *ManagerService) HandleHeartbeat(
 	if senderID == "" || convID == "" {
 		return errors.New("invalid heartbeat parameters")
 	}
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-	for range ticker.C {
-		// Hot path
-		if err := c.presStore.UpdateOnlineStatus(ctx, convID, senderID, 45*time.Second); err != nil {
-			c.log.ErrorContext(ctx, "manager - handle heartbeat - update online status failed", "conv_id", convID, "sender_id", senderID, "err", err)
+	ticker1 := time.NewTicker(30 * time.Second)
+	defer ticker1.Stop()
+	ticker2 := time.NewTicker(120 * time.Second)
+	defer ticker2.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			c.log.Info("manager - handle heartbeat - stopped", "conv_id", convID, "sender_id", senderID)
+			return nil
+		case <-ticker1.C:
+			if err := c.presStore.UpdateOnlineStatus(ctx, convID, senderID, 45*time.Second); err != nil {
+				c.log.ErrorContext(ctx, "manager - handle heartbeat - update online status failed", "conv_id", convID, "sender_id", senderID, "err", err)
+			}
+		case <-ticker2.C:
+			if err := c.session.SendHeartbeat(ctx, senderID, convID); err != nil {
+				c.log.ErrorContext(ctx, "manager - handle heartbeat - send heartbeat failed", "conv_id", convID, "sender_id", senderID, "err", err)
+			}
 		}
-		// Cold path
-		if err := c.session.SendHeartbeat(ctx, senderID, convID); err != nil {
-			c.log.ErrorContext(ctx, "manager - handle heartbeat - send heartbeat failed", "conv_id", convID, "sender_id", senderID, "err", err)
-		}
+
 	}
-	return nil
 }
 
 func (c *ManagerService) HandleDisconnect(

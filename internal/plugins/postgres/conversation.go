@@ -64,21 +64,13 @@ func (r *ConversationRepo) CreateConversation(ctx context.Context, convID uuid.U
 
 	exec := GetExecutor(ctx, r.db)
 	err := exec.QueryRowContext(ctx, query, convID).Scan(&conversation.CreatedAt)
-	switch {
-	case err == nil:
-		// Inserted successfully
-		return conversation, nil
-
-	case err == sql.ErrNoRows:
-		// Already exists
+	if err == sql.ErrNoRows {
 		existing, err := r.GetConversationByID(ctx, convID)
 		if err != nil {
 			return nil, err
 		}
 		conversation.CreatedAt = existing.CreatedAt
-
-	default:
-		// Real DB error
+	} else if err != nil {
 		return nil, err
 	}
 	_, err = exec.ExecContext(ctx, `

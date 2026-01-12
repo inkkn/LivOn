@@ -36,8 +36,6 @@ func (s *WSHandler) Handler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	var upgrader = websocket.Upgrader{
 		ReadBufferSize:  32,
 		WriteBufferSize: 32,
@@ -48,9 +46,15 @@ func (s *WSHandler) Handler(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.ErrorContext(r.Context(), "ws handler - upgrade - ws upgrade failed", "err", err)
+		cancel()
 		return
 	}
 	defer conn.Close()
+	conn.SetCloseHandler(func(code int, text string) error {
+		log.Info("ws handler - ws closed", "user_id", userID)
+		cancel()
+		return nil
+	})
 	websocket := ws.NewWebSocket(ctx, conn)
 
 	convID := r.URL.Query().Get("conv_id")
