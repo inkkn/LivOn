@@ -33,6 +33,9 @@ func (r *MessageRepo) SaveWithSequence(
 	ctx context.Context,
 	msg *domain.Message,
 ) (int64, error) {
+	if msg.ConversationID == uuid.Nil {
+		return 0, domain.ErrInvalidConversationID
+	}
 	exec := GetExecutor(ctx, r.db)
 	var seq int64
 	err := exec.QueryRowContext(ctx, `
@@ -42,6 +45,10 @@ func (r *MessageRepo) SaveWithSequence(
         RETURNING last_seq
     `, msg.ConversationID).Scan(&seq)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			// No sequence row = conversation does not exist or not initialized
+			return 0, domain.ErrSequenceNotInitialized
+		}
 		return 0, err
 	}
 	_, err = exec.ExecContext(ctx, `
@@ -64,16 +71,18 @@ func (r *MessageRepo) SaveWithSequence(
 func (r *MessageRepo) GetVisibleMessages(
 	ctx context.Context,
 	convID uuid.UUID,
-	p *domain.Participant,
 ) ([]domain.Message, error) {
+	if convID == uuid.Nil {
+		return nil, domain.ErrInvalidConversationID
+	}
 	exec := GetExecutor(ctx, r.db)
 	rows, err := exec.QueryContext(ctx, `
 		SELECT id, conversation_id, sender_id, seq, payload, created_at
 		FROM messages
 		WHERE conversation_id = $1
-		  AND created_at >= GREATEST($2, now() - interval '1 minutes')
+		AND created_at >= now() - interval '1 minutes'
 		ORDER BY seq ASC
-	`, convID, p.JoinedAt)
+	`, convID)
 	if err != nil {
 		return nil, err
 	}

@@ -1,0 +1,62 @@
+{
+  "annotations": { "list": [ { "builtIn": 1, "datasource": { "type": "grafana", "uid": "-- Grafana --" }, "enable": true, "hide": true, "name": "Annotations & Alerts", "type": "dashboard" } ] },
+  "editable": true, "fiscalYearStartMonth": 0, "graphTooltip": 1, "links": [], "liveNow": false,
+  "panels": [
+    {
+      "title": "Service Availability (SLO)",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "sum(rate(http_server_request_duration_seconds_count{service_name=~\"$service\", code!~'5..'}[5m])) / sum(rate(http_server_request_duration_seconds_count{service_name=~\"$service\"}[5m])) * 100" } ],
+      "fieldConfig": {
+        "defaults": { "min": 98, "max": 100, "unit": "percent", "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 99.9 } ] } }
+      }
+    },
+    {
+      "title": "Request Latency (P95) with Exemplars",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 18, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "histogram_quantile(0.95, sum(rate(http_server_request_duration_seconds_bucket[5m])) by (le))", "exemplar": true } ],
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "pointSize": 5 } } }
+    },
+    {
+      "title": "Traffic (Requests/sec)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "sum(rate(http_server_request_duration_seconds_count[5m])) by (method, route)" } ]
+    },
+    {
+      "title": "Error Logs (Loki)",
+      "type": "logs",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [ { "expr": "{container=\"$container\"} | json | item_id=\"fail\"" } ]
+    }
+  ],
+
+  "refresh": "5s", "schemaVersion": 38, "style": "dark", "tags": ["reusable", "obs-platform"], 
+  "templating": { "list": [
+    {
+      "name": "service",
+      "type": "query",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "query": "label_values(http_server_duration_seconds_count, service_name)",
+      "refresh": 1,
+      "multi": true,
+      "includeAll": true,
+      "allValue": ".*"
+    },
+    {
+      "name": "container",
+      "type": "query",
+      "datasource": "loki",
+      "query": "label_values(container)"
+    }
+  ] }, 
+  "time": { "from": "now-15m", "to": "now" }, "title": "Modular Monolith: Golden Signals"
+}

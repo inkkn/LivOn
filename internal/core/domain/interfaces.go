@@ -39,5 +39,5 @@ type MessageRepository interface {
 	SaveWithSequence(ctx context.Context, msg *Message) (seq int64, err error)
 	// Visibility Logic: Join-Onward + Recent 1-min Window
 	// Uses the Participant.JoinedAt and current time to filter history
-	GetVisibleMessages(ctx context.Context, convID uuid.UUID, p *Participant) ([]Message, error)
+	GetVisibleMessages(ctx context.Context, convID uuid.UUID) ([]Message, error)
 }

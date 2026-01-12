@@ -1,7 +1,7 @@
 package server
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -12,6 +12,7 @@ import (
 )
 
 type Server struct {
+	log         *slog.Logger
 	mux         *http.ServeMux
 	port        string
 	authHandler *handlers.AuthHandler
@@ -20,6 +21,7 @@ type Server struct {
 }
 
 func NewServer(
+	log *slog.Logger,
 	port string,
 	userSvc *services.UserService,
 	tokenSvc *services.TokenService,
@@ -27,6 +29,7 @@ func NewServer(
 	hub *registry.Registry,
 ) *Server {
 	s := &Server{
+		log:         log,
 		mux:         http.NewServeMux(),
 		port:        port,
 		authHandler: handlers.NewAuthHandler(userSvc, tokenSvc),
@@ -39,17 +42,16 @@ func NewServer(
 }
 
 func (s *Server) routes() {
-	// 1. Initialize Middleware
+	// Initialize Middleware
 	auth := middleware.AuthMiddleware(s.tokenSvc)
-
-	// 2. Public Routes
+	log := middleware.RequestLogger(s.log)
+	// Public Routes
 	s.mux.HandleFunc("POST /auth/register", s.authHandler.RequestOTP)
 	s.mux.HandleFunc("POST /auth/verify", s.authHandler.VerifyOTP)
 
-	// 3. Protected Routes
-	// We wrap the WSHandler with the Auth middleware.
+	// Protected Routes
 	// The middleware extracts the 'sub' (phone) from JWT and puts it in Context.
-	s.mux.Handle("/ws", auth(http.HandlerFunc(s.wsHandler.Handler)))
+	s.mux.Handle("/ws", log(auth(http.HandlerFunc(s.wsHandler.Handler))))
 }
 
 func (s *Server) Start() error {
@@ -60,6 +62,6 @@ func (s *Server) Start() error {
 		WriteTimeout: 15 * time.Second,
 	}
 
-	log.Printf("Server starting on port %s", s.port)
+	s.log.Info("starting server", "port", s.port)
 	return server.ListenAndServe()
 }

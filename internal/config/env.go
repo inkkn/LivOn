@@ -36,6 +36,10 @@ func Load() *Config {
 		Worker: &WorkerConfig{
 			MessageGroup: getEnv("WORKER_MESSAGE_GROUP", "conversation-workers"),
 		},
+		Logger: &LoggerConfig{
+			Level:  getEnv("LEVEL", "INFO"),
+			Format: getEnv("FORMAT", "JSON"),
+		},
 		SecretToken: getEnv("JWT_SECRET", ""),
 	}
 }

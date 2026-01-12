@@ -64,6 +64,71 @@ services:
     networks:
       - chatservice_net
 
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./deploy/otel:/etc/otelcol:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "9464:9464"   # Prometheus scrape
+    networks:
+      - chatservice_net
+
+  prometheus:
+    image: prom/prometheus:latest
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    volumes:
+      - ./deploy/prometheus:/etc/prometheus:ro
+    ports:
+      - "9090:9090"
+    networks:
+      - chatservice_net
+
+  grafana:
+    image: grafana/grafana:latest
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards
+    ports:
+      - "3000:3000"
+    networks:
+      - chatservice_net
+
+  loki:
+    image: grafana/loki:latest
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    volumes:
+      - ./deploy/loki:/etc/loki:ro
+      - ./data/loki-data:/loki:rw
+    ports:
+      - "3100:3100"
+    networks:
+      - chatservice_net
+
+  promtail:
+    image: grafana/promtail:latest
+    command: ["-config.file=/etc/promtail/promtail.yaml"]
+    volumes:
+      - ./deploy/promtail:/etc/promtail:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - chatservice_net
+
+  tempo:
+    image: grafana/tempo:latest
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./deploy/tempo:/etc/tempo:ro
+      - ./data/tempo-data:/tmp/tempo:rw
+    ports:
+      - "3200:3200"
+      - "4319:4317" # optional external OTLP
+    networks:
+      - chatservice_net
+
 networks:
   chatservice_net:
     driver: bridge

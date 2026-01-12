@@ -23,17 +23,26 @@ func NewUserRepository(db *sql.DB) *UserRepo {
 */
 
 func (r *UserRepo) GetUserByID(ctx context.Context, phone string) (*domain.User, error) {
+	if phone == "" {
+		return nil, domain.ErrInvalidUserID
+	}
 	user := &domain.User{ID: phone}
 	query := `SELECT created_at FROM users WHERE id = $1`
 	exec := GetExecutor(ctx, r.db)
 	err := exec.QueryRowContext(ctx, query, phone).Scan(&user.CreatedAt)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, domain.ErrUserNotFound
+		}
 		return nil, err
 	}
 	return user, nil
 }
 
 func (r *UserRepo) CreateUser(ctx context.Context, phone string) (*domain.User, error) {
+	if phone == "" {
+		return nil, domain.ErrInvalidUserID
+	}
 	user := &domain.User{
 		ID: phone,
 	}
@@ -42,18 +51,29 @@ func (r *UserRepo) CreateUser(ctx context.Context, phone string) (*domain.User, 
 	query :=
 		`INSERT INTO users (id) 
         VALUES ($1) 
-        ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id
+        ON CONFLICT (id) DO NOTHING
         RETURNING created_at`
 
 	exec := GetExecutor(ctx, r.db)
 	err := exec.QueryRowContext(ctx, query, phone).Scan(&user.CreatedAt)
-	if err != nil {
+	switch {
+	case err == nil:
+		// Created
+		return user, nil
+
+	case err == sql.ErrNoRows:
+		// Already exists
+		return r.GetUserByID(ctx, phone)
+
+	default:
 		return nil, err
 	}
-	return user, nil
 }
 
 func (r *UserRepo) DeleteUser(ctx context.Context, phone string) error {
+	if phone == "" {
+		return domain.ErrInvalidUserID
+	}
 	query := `DELETE FROM users WHERE id = $1`
 	exec := GetExecutor(ctx, r.db)
 	result, err := exec.ExecContext(ctx, query, phone)
@@ -65,7 +85,7 @@ func (r *UserRepo) DeleteUser(ctx context.Context, phone string) error {
 		return err
 	}
 	if rowsAffected == 0 {
-		return sql.ErrNoRows
+		return domain.ErrUserNotFound
 	}
 	return nil
 }

@@ -34,6 +34,9 @@ func (r *ParticipantRepo) FindRecentParticipant(
 	userID string,
 	convID uuid.UUID,
 ) (*domain.Participant, error) {
+	if convID == uuid.Nil {
+		return nil, domain.ErrInvalidConversationID
+	}
 	exec := GetExecutor(ctx, r.db)
 	row := exec.QueryRowContext(ctx, `
 		SELECT id, conversation_id, user_id, joined_at, last_seen_at, left_at
@@ -53,8 +56,11 @@ func (r *ParticipantRepo) FindRecentParticipant(
 		&p.LastSeenAt,
 		&p.LeftAt,
 	)
-	if err == sql.ErrNoRows {
-		return nil, nil
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
 	}
 	return &p, err
 }
@@ -63,6 +69,12 @@ func (r *ParticipantRepo) CreateParticipant(
 	ctx context.Context,
 	p *domain.Participant,
 ) error {
+	if p.ID == uuid.Nil {
+		return domain.ErrInvalidParticipantID
+	}
+	if p.ConversationID == uuid.Nil {
+		return domain.ErrInvalidConversationID
+	}
 	exec := GetExecutor(ctx, r.db)
 	_, err := exec.ExecContext(ctx, `
 		INSERT INTO conversation_participants (
@@ -82,12 +94,25 @@ func (r *ParticipantRepo) UpdatePresence(
 	ctx context.Context,
 	participantID uuid.UUID,
 ) error {
+	if participantID == uuid.Nil {
+		return domain.ErrInvalidParticipantID
+	}
 	exec := GetExecutor(ctx, r.db)
-	_, err := exec.ExecContext(ctx, `
+	result, err := exec.ExecContext(ctx, `
 		UPDATE conversation_participants
 		SET last_seen_at = now()
 		WHERE id = $1
 	`, participantID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrParticipantNotFound
+	}
 	return err
 }
 
@@ -95,11 +120,24 @@ func (r *ParticipantRepo) MarkLeft(
 	ctx context.Context,
 	participantID uuid.UUID,
 ) error {
+	if participantID == uuid.Nil {
+		return domain.ErrInvalidParticipantID
+	}
 	exec := GetExecutor(ctx, r.db)
-	_, err := exec.ExecContext(ctx, `
+	result, err := exec.ExecContext(ctx, `
 		UPDATE conversation_participants
 		SET left_at = now(), last_seen_at = now()
 		WHERE id = $1 AND left_at IS NULL
 	`, participantID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrParticipantNotFound
+	}
 	return err
 }

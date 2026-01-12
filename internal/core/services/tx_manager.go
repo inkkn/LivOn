@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"database/sql"
+	"log/slog"
 )
 
 type txKeyType struct{}
@@ -10,11 +11,12 @@ type txKeyType struct{}
 var txKey = txKeyType{}
 
 type TxManager struct {
-	db *sql.DB
+	log *slog.Logger
+	db  *sql.DB
 }
 
-func NewTxManager(db *sql.DB) *TxManager {
-	return &TxManager{db: db}
+func NewTxManager(log *slog.Logger, db *sql.DB) *TxManager {
+	return &TxManager{log: log, db: db}
 }
 
 func (tm *TxManager) WithTx(
@@ -23,10 +25,12 @@ func (tm *TxManager) WithTx(
 ) error {
 	tx, err := tm.db.BeginTx(ctx, nil)
 	if err != nil {
+		tm.log.ErrorContext(ctx, "transaction begin failed", "err", err)
 		return err
 	}
 	ctxWithTx := context.WithValue(ctx, txKey, tx)
 	if err := fn(ctxWithTx); err != nil {
+		tm.log.ErrorContext(ctx, "transaction failed", "err", err)
 		_ = tx.Rollback()
 		return err
 	}

@@ -31,17 +31,26 @@ func NewConversationRepo(db *sql.DB) *ConversationRepo {
 */
 
 func (r *ConversationRepo) GetConversationByID(ctx context.Context, convID uuid.UUID) (*domain.Conversation, error) {
+	if convID == uuid.Nil {
+		return nil, domain.ErrInvalidConversationID
+	}
 	conversation := &domain.Conversation{ID: convID}
 	query := `SELECT created_at FROM conversations WHERE id = $1`
 	exec := GetExecutor(ctx, r.db)
 	err := exec.QueryRowContext(ctx, query, convID).Scan(&conversation.CreatedAt)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, domain.ErrConversationNotFound
+		}
 		return nil, err
 	}
 	return conversation, nil
 }
 
 func (r *ConversationRepo) CreateConversation(ctx context.Context, convID uuid.UUID) (*domain.Conversation, error) {
+	if convID == uuid.Nil {
+		return nil, domain.ErrInvalidConversationID
+	}
 	conversation := &domain.Conversation{
 		ID: convID,
 	}
@@ -50,11 +59,33 @@ func (r *ConversationRepo) CreateConversation(ctx context.Context, convID uuid.U
 	query :=
 		`INSERT INTO conversations (id) 
         VALUES ($1) 
-        ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id
+		ON CONFLICT (id) DO NOTHING
         RETURNING created_at`
 
 	exec := GetExecutor(ctx, r.db)
 	err := exec.QueryRowContext(ctx, query, convID).Scan(&conversation.CreatedAt)
+	switch {
+	case err == nil:
+		// Inserted successfully
+		return conversation, nil
+
+	case err == sql.ErrNoRows:
+		// Already exists
+		existing, err := r.GetConversationByID(ctx, convID)
+		if err != nil {
+			return nil, err
+		}
+		conversation.CreatedAt = existing.CreatedAt
+
+	default:
+		// Real DB error
+		return nil, err
+	}
+	_, err = exec.ExecContext(ctx, `
+		INSERT INTO conversation_sequences (conversation_id, last_seq)
+		VALUES ($1, 0)
+		ON CONFLICT (conversation_id) DO NOTHING
+	`, convID)
 	if err != nil {
 		return nil, err
 	}
@@ -62,6 +93,9 @@ func (r *ConversationRepo) CreateConversation(ctx context.Context, convID uuid.U
 }
 
 func (r *ConversationRepo) DeleteConversation(ctx context.Context, convID uuid.UUID) error {
+	if convID == uuid.Nil {
+		return domain.ErrInvalidConversationID
+	}
 	query := `DELETE FROM conversations WHERE id = $1`
 	exec := GetExecutor(ctx, r.db)
 	result, err := exec.ExecContext(ctx, query, convID)
@@ -73,7 +107,7 @@ func (r *ConversationRepo) DeleteConversation(ctx context.Context, convID uuid.U
 		return err
 	}
 	if rowsAffected == 0 {
-		return sql.ErrNoRows
+		return domain.ErrConversationNotFound
 	}
 	return nil
 }

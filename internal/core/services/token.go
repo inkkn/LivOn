@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -10,9 +11,10 @@ import (
 type TokenService struct {
 	secretKey []byte
 	issuer    string
+	log       *slog.Logger
 }
 
-func NewTokenService(secret string) *TokenService {
+func NewTokenService(log *slog.Logger, secret string) *TokenService {
 	return &TokenService{
 		secretKey: []byte(secret),
 		issuer:    "livon-backend",

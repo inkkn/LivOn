@@ -8,6 +8,7 @@ type Config struct {
 	Postgres    *PostgresConfig
 	Twilio      *TwilioConfig
 	Worker      *WorkerConfig
+	Logger      *LoggerConfig
 	SecretToken string
 }
 
@@ -44,4 +45,9 @@ type TwilioConfig struct {
 
 type WorkerConfig struct {
 	MessageGroup string
+}
+
+type LoggerConfig struct {
+	Level  string
+	Format string
 }

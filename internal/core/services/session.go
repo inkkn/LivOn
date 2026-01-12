@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"livon/internal/core/domain"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -23,15 +24,18 @@ type ISessionService interface {
 type SessionService struct {
 	memRepo   domain.ConversationParticipantRepository
 	txManager *TxManager
+	log       *slog.Logger
 	lastFlush sync.Map // senderID → time.Time
 	clock     func() time.Time
 }
 
 func NewSessionService(
+	log *slog.Logger,
 	memRepo domain.ConversationParticipantRepository,
 	txManager *TxManager,
 ) *SessionService {
 	return &SessionService{
+		log:       log,
 		memRepo:   memRepo,
 		txManager: txManager,
 		lastFlush: sync.Map{},
@@ -85,15 +89,22 @@ func (s *SessionService) StartSession(
 		return nil
 	})
 	if err != nil {
+		s.log.ErrorContext(ctx, "session - start session - create participant failed", "conv_id", convID, "user_id", userID, "error", err)
 		return nil, err
 	}
+	s.log.InfoContext(ctx, "session - start session - create participant success", "conv_id", convID, "user_id", userID, "sender_id", session.SenderID)
 	return session, nil
 }
 
 func (s *SessionService) StopSession(ctx context.Context, senderID, convID string) error {
-	return s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+	if err := s.txManager.WithTx(ctx, func(txCtx context.Context) error {
 		return s.memRepo.MarkLeft(txCtx, uuid.MustParse(senderID))
-	})
+	}); err != nil {
+		s.log.ErrorContext(ctx, "session - stop session - mark left failed", "conv_id", convID, "sender_id", senderID, "error", err)
+		return err
+	}
+	s.log.InfoContext(ctx, "session - stop session - mark left success", "conv_id", convID, "sender_id", senderID)
+	return nil
 }
 
 func (s *SessionService) SendHeartbeat(
@@ -107,8 +118,10 @@ func (s *SessionService) SendHeartbeat(
 		if err := s.txManager.WithTx(ctx, func(txCtx context.Context) error {
 			return s.memRepo.UpdatePresence(txCtx, uuid.MustParse(senderID))
 		}); err != nil {
+			s.log.ErrorContext(ctx, "session - send heartbeat - postgres update presence failed", "conv_id", convID, "sender_id", senderID)
 			return err
 		}
+		s.log.InfoContext(ctx, "session - send heartbeat - postgres update presence success", "conv_id", convID, "sender_id", senderID)
 		s.lastFlush.Store(senderID, now)
 	}
 	return nil

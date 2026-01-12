@@ -33,6 +33,9 @@ CREATE TABLE conversation_sequences (
     conversation_id UUID PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
     last_seq        BIGINT NOT NULL DEFAULT 0
 );
+ALTER TABLE conversation_sequences
+ADD CONSTRAINT seq_conversation_not_zero
+CHECK (conversation_id <> '00000000-0000-0000-0000-000000000000');
 
 -- Persistent Messages
 CREATE TABLE messages (
