@@ -40,6 +40,9 @@ func Load() *Config {
 			Level:  getEnv("LEVEL", "INFO"),
 			Format: getEnv("FORMAT", "JSON"),
 		},
+		Tracer: &TracerConfig{
+			Address: getEnv("TRACE_COLL_ADD", ""),
+		},
 		SecretToken: getEnv("JWT_SECRET", ""),
 	}
 }

@@ -14,6 +14,7 @@ import (
 type Server struct {
 	log         *slog.Logger
 	mux         *http.ServeMux
+	app         string
 	port        string
 	authHandler *handlers.AuthHandler
 	wsHandler   *handlers.WSHandler
@@ -22,6 +23,7 @@ type Server struct {
 
 func NewServer(
 	log *slog.Logger,
+	app string,
 	port string,
 	userSvc *services.UserService,
 	tokenSvc *services.TokenService,
@@ -29,6 +31,7 @@ func NewServer(
 	hub *registry.Registry,
 ) *Server {
 	s := &Server{
+		app:         app,
 		log:         log,
 		mux:         http.NewServeMux(),
 		port:        port,
@@ -45,13 +48,14 @@ func (s *Server) routes() {
 	// Initialize Middleware
 	auth := middleware.AuthMiddleware(s.tokenSvc)
 	log := middleware.RequestLogger(s.log)
+	trace := middleware.TracerMiddleware(s.app)
 	// Public Routes
-	s.mux.HandleFunc("POST /auth/register", s.authHandler.RequestOTP)
-	s.mux.HandleFunc("POST /auth/verify", s.authHandler.VerifyOTP)
+	s.mux.Handle("POST /auth/register", trace(log(http.Handler(http.HandlerFunc(s.authHandler.RequestOTP)))))
+	s.mux.Handle("POST /auth/verify", trace(log(http.Handler(http.HandlerFunc(s.authHandler.VerifyOTP)))))
 
 	// Protected Routes
 	// The middleware extracts the 'sub' (phone) from JWT and puts it in Context.
-	s.mux.Handle("/ws", log(auth(http.HandlerFunc(s.wsHandler.Handler))))
+	s.mux.Handle("/ws", trace(log(auth(http.HandlerFunc(s.wsHandler.Handler)))))
 }
 
 func (s *Server) Start() error {

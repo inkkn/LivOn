@@ -9,6 +9,7 @@ type Config struct {
 	Twilio      *TwilioConfig
 	Worker      *WorkerConfig
 	Logger      *LoggerConfig
+	Tracer      *TracerConfig
 	SecretToken string
 }
 
@@ -50,4 +51,8 @@ type WorkerConfig struct {
 type LoggerConfig struct {
 	Level  string
 	Format string
+}
+
+type TracerConfig struct {
+	Address string
 }

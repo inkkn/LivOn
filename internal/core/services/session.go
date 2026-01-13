@@ -17,7 +17,7 @@ type ISessionService interface {
 	StopSession(ctx context.Context, senderID, convID string) error
 	// SendHeartbeat updates Redis every 30s and decides when
 	// to flush 'last_seen_at' to Postgres (every 5 mins).
-	SendHeartbeat(ctx context.Context, senderID string, convID string) error
+	SessionSync(ctx context.Context, senderID string, convID string) error
 }
 
 type SessionService struct {
@@ -102,7 +102,7 @@ func (s *SessionService) StopSession(ctx context.Context, senderID, convID strin
 	return nil
 }
 
-func (s *SessionService) SendHeartbeat(
+func (s *SessionService) SessionSync(
 	ctx context.Context,
 	senderID string,
 	convID string,
@@ -110,9 +110,9 @@ func (s *SessionService) SendHeartbeat(
 	if err := s.txManager.WithTx(ctx, func(txCtx context.Context) error {
 		return s.memRepo.UpdatePresence(txCtx, uuid.MustParse(senderID))
 	}); err != nil {
-		s.log.ErrorContext(ctx, "session - send heartbeat - postgres update presence failed", "conv_id", convID, "sender_id", senderID, "err", err)
+		s.log.ErrorContext(ctx, "session - session sync - postgres update presence failed", "conv_id", convID, "sender_id", senderID, "err", err)
 		return err
 	}
-	s.log.InfoContext(ctx, "session - send heartbeat - postgres update presence success", "conv_id", convID, "sender_id", senderID)
+	s.log.InfoContext(ctx, "session - session sync - postgres update presence success", "conv_id", convID, "sender_id", senderID)
 	return nil
 }

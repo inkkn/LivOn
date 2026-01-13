@@ -9,12 +9,14 @@ import (
 	"livon/internal/config"
 	"livon/internal/core/services"
 	"livon/internal/platform/logger"
+	"livon/internal/platform/telemetry"
 	"livon/internal/plugins/postgres"
 	redisPlugin "livon/internal/plugins/redis"
 	"livon/internal/plugins/twilio"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -30,9 +32,22 @@ func main() {
 	// Logger
 	log := logger.NewLogger(*cfg)
 	log.Info("starting application")
+
+	otelShutdown, err := telemetry.InitTelemetry(ctx, *cfg)
+	if err != nil {
+		log.Error("failed to initialize telemetry", "err", err)
+	}
+	defer func() {
+		log.Info("flushing telemetry...")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := otelShutdown(shutdownCtx); err != nil {
+			log.Error("telemetry shutdown failed", "err", err)
+		}
+	}()
+
 	// Infra
 	var pdb *sql.DB
-	var err error
 	if pdb, err = postgres.New(ctx, *cfg.Postgres); err != nil {
 		log.Error("postgress connection failed", "DSN", cfg.Postgres.DSN)
 		return
@@ -68,6 +83,6 @@ func main() {
 	hub.RunWorker(wrkr.Run)
 
 	// Server
-	srv := server.NewServer(log, "8080", userSvc, tokenSvc, managerSvc, hub)
+	srv := server.NewServer(log, cfg.Service.Name, "8080", userSvc, tokenSvc, managerSvc, hub)
 	srv.Start()
 }

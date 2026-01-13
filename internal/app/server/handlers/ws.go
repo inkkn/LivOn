@@ -11,6 +11,8 @@ import (
 	"net/http"
 
 	"github.com/gorilla/websocket"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type WSHandler struct {
@@ -27,15 +29,17 @@ func NewWSHandler(hub *registry.Registry, manager *services.ManagerService) *WSH
 
 func (s *WSHandler) Handler(w http.ResponseWriter, r *http.Request) {
 	log, _ := r.Context().Value(middleware.LoggerKey).(*slog.Logger)
-
+	span := trace.SpanFromContext(r.Context())
+	log.Info("Context Check", "has_span", span.SpanContext().IsValid(), "trace_id", span.SpanContext().TraceID().String())
 	userID, ok := r.Context().Value(middleware.UserIDKey).(string)
 	if !ok {
 		log.ErrorContext(r.Context(), "ws handler - unauthorised missing user_id")
 		http.Error(w, "Unauthorized: User ID missing", http.StatusUnauthorized)
 		return
 	}
-
-	ctx, cancel := context.WithCancel(context.Background())
+	span.SetAttributes(attribute.String("user.id", userID))
+	sessionCtx := context.WithoutCancel(r.Context())
+	ctx, cancel := context.WithCancel(sessionCtx)
 	var upgrader = websocket.Upgrader{
 		ReadBufferSize:  32,
 		WriteBufferSize: 32,
@@ -70,6 +74,11 @@ func (s *WSHandler) Handler(w http.ResponseWriter, r *http.Request) {
 		IsNewIdentity: isNew,
 	}
 	_ = conn.WriteJSON(resp)
+	span.SetAttributes(
+		attribute.String("chat.sender_id", senderID),
+		attribute.String("chat.conv_id", convID),
+		attribute.Bool("chat.is_new_session", isNew),
+	)
 	log.InfoContext(r.Context(), "ws handler - ws connection established", "sender_id", senderID)
 	// Start registry and worker
 	client := ws.NewClient(ctx, websocket, senderID, convID)
